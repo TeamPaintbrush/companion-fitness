@@ -1,0 +1,17 @@
+{
+  "name": "companion-fitness-setup",
+  "version": "1.0.0",
+  "description": "AWS infrastructure setup script for Companion Fitness",
+  "type": "commonjs",
+  "scripts": {
+    "setup": "node setup.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.600.0",
+    "@aws-sdk/client-iam": "^3.600.0",
+    "@aws-sdk/client-lambda": "^3.600.0",
+    "@aws-sdk/client-apigatewayv2": "^3.600.0",
+    "@aws-sdk/client-sts": "^3.600.0",
+    "adm-zip": "^0.5.10"
+  }
+}
