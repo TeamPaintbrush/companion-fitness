@@ -5,7 +5,7 @@ const POLL_MS  = 10_000  // poll partner every 10 seconds
 const SAVE_MS  =  2_000  // debounce own saves by 2 seconds
 
 export function useSync(state, dispatch) {
-  const { pairId, myUserId, workouts, users, challenge, setupComplete } = state
+  const { pairId, pairSecret, myUserId, workouts, users, challenge, setupComplete } = state
   const [status, setStatus] = useState('idle') // 'idle' | 'syncing' | 'live' | 'error'
 
   const saveTimer   = useRef(null)
@@ -13,7 +13,7 @@ export function useSync(state, dispatch) {
   const lastSaved   = useRef(null)
 
   // Only sync when API URL is configured and setup is done
-  const active = !!(import.meta.env.VITE_API_URL && pairId && setupComplete)
+  const active = !!(import.meta.env.VITE_API_URL && pairId && pairSecret && setupComplete)
 
   const myUserKey     = `user${myUserId}`
   const partnerUserId = myUserId === 0 ? 1 : 0
@@ -32,20 +32,20 @@ export function useSync(state, dispatch) {
 
     setStatus('syncing')
     try {
-      await putPairUser(pairId, myUserKey, payload)
+      await putPairUser(pairId, myUserKey, payload, { pairSecret })
       lastSaved.current = fingerprint
       setStatus('live')
     } catch (err) {
       console.warn('[sync] save failed:', err.message)
       setStatus('error')
     }
-  }, [active, pairId, myUserKey, myUserId, workouts, users, challenge])
+  }, [active, pairId, pairSecret, myUserKey, myUserId, workouts, users, challenge])
 
   // ── Poll partner data ──────────────────────────────────────────────────────
   const pollPartner = useCallback(async () => {
     if (!active) return
     try {
-      const records      = await getPair(pairId)
+      const records      = await getPair(pairId, { pairSecret })
       const partnerRecord = records.find(r => r.userId === partnerKey)
       if (partnerRecord) {
         dispatch({
@@ -60,7 +60,7 @@ export function useSync(state, dispatch) {
       console.warn('[sync] poll failed:', err.message)
       setStatus('error')
     }
-  }, [active, pairId, partnerKey, partnerUserId, dispatch])
+  }, [active, pairId, pairSecret, partnerKey, partnerUserId, dispatch])
 
   // ── Debounced save when own data changes ───────────────────────────────────
   useEffect(() => {

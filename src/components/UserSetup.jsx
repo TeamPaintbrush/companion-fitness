@@ -8,6 +8,22 @@ function newCode() {
   return Array.from({ length: 6 }, () => CHARS[Math.floor(Math.random() * CHARS.length)]).join('')
 }
 
+function newSecret() {
+  return Array.from({ length: 10 }, () => CHARS[Math.floor(Math.random() * CHARS.length)]).join('')
+}
+
+function addDays(dateStr, days) {
+  const d = new Date(dateStr + 'T12:00:00')
+  d.setDate(d.getDate() + days)
+  return d.toISOString().split('T')[0]
+}
+
+function getDurationDays(startDate, endDate) {
+  const start = new Date(startDate + 'T12:00:00')
+  const end = new Date(endDate + 'T12:00:00')
+  return Math.max(1, Math.floor((end - start) / (1000 * 60 * 60 * 24)) + 1)
+}
+
 export default function UserSetup() {
   const { dispatch } = useStore()
 
@@ -18,11 +34,14 @@ export default function UserSetup() {
     { name: '', emoji: 'heart', color: 'tan' }
   ])
   const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0])
+  const [endDate, setEndDate] = useState(addDays(new Date().toISOString().split('T')[0], 99))
 
   // Pair code state
   const [mode, setMode]       = useState('create')  // 'create' | 'join'
   const [genCode, setGenCode] = useState(newCode)   // generated code for creator
+  const [inviteSecret, setInviteSecret] = useState(newSecret)
   const [joinCode, setJoinCode] = useState('')       // code typed by joiner
+  const [joinSecret, setJoinSecret] = useState('')
   const [showResetToast, setShowResetToast] = useState(false)
 
   useEffect(() => {
@@ -44,14 +63,19 @@ export default function UserSetup() {
 
   function handleStart() {
     const pairId   = mode === 'create' ? genCode : joinCode.toUpperCase().trim()
+    const pairSecret = mode === 'create' ? inviteSecret : joinSecret.toUpperCase().trim()
     const myUserId = mode === 'create' ? 0 : 1
     if (!pairId || pairId.length !== 6) return
+    if (!pairSecret || pairSecret.length < 8) return
 
     dispatch({
       type: 'COMPLETE_SETUP',
       users: users.map(u => ({ name: u.name.trim() || 'User', emoji: u.emoji, color: u.color })),
       startDate,
+      endDate,
+      days: getDurationDays(startDate, endDate),
       pairId,
+      pairSecret,
       myUserId
     })
   }
@@ -80,7 +104,7 @@ export default function UserSetup() {
         <div className="setup-logo"><FitnessIcon name="activity" size={56} /></div>
         <h1 className="setup-title"><span>Companion</span> Fitness</h1>
         <p className="setup-subtitle">
-          A 100-day fitness challenge tracker<br />for you and your companion
+          A flexible fitness challenge tracker<br />for you and your companion
         </p>
 
         <div className="setup-step">
@@ -137,10 +161,36 @@ export default function UserSetup() {
           })}
 
           <div className="setup-user-card">
-            <div className="setup-user-num">📅 Challenge Start Date</div>
-            <input className="form-input" type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{ colorScheme: 'dark' }} />
+            <div className="setup-user-num">📅 Challenge Date Range</div>
+            <div style={{ display: 'grid', gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6 }}>Start date</div>
+                <input
+                  className="form-input"
+                  type="date"
+                  value={startDate}
+                  onChange={e => {
+                    const nextStart = e.target.value
+                    setStartDate(nextStart)
+                    if (endDate < nextStart) setEndDate(nextStart)
+                  }}
+                  style={{ colorScheme: 'dark' }}
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6 }}>End date</div>
+                <input
+                  className="form-input"
+                  type="date"
+                  min={startDate}
+                  value={endDate}
+                  onChange={e => setEndDate(e.target.value)}
+                  style={{ colorScheme: 'dark' }}
+                />
+              </div>
+            </div>
             <p style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 8, lineHeight: 1.5 }}>
-              Your 100-day challenge starts on this date.
+              Your challenge will run for {getDurationDays(startDate, endDate)} days.
             </p>
           </div>
 
@@ -202,11 +252,23 @@ export default function UserSetup() {
               Share this code with your companion.<br />
               They enter it on their device to link up.
             </p>
+            <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 10, marginBottom: 10, background: 'var(--bg-input)' }}>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4 }}>
+                Invite Secret
+              </div>
+              <div style={{ fontSize: 19, fontWeight: 800, letterSpacing: 2, color: '#fff', textAlign: 'center' }}>{inviteSecret}</div>
+            </div>
             <button
               onClick={() => setGenCode(newCode())}
               style={{ width: '100%', padding: '10px', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
             >
               Generate new code
+            </button>
+            <button
+              onClick={() => setInviteSecret(newSecret())}
+              style={{ width: '100%', padding: '10px', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', marginTop: 8 }}
+            >
+              Regenerate invite secret
             </button>
           </div>
         ) : (
@@ -225,6 +287,18 @@ export default function UserSetup() {
             <p style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 8, lineHeight: 1.5 }}>
               Ask the other person for their 6-character pair code.
             </p>
+            <input
+              className="form-input"
+              type="text"
+              placeholder="Invite secret"
+              minLength={8}
+              value={joinSecret}
+              onChange={e => setJoinSecret(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+              style={{ marginTop: 10, fontSize: 18, fontWeight: 700, letterSpacing: 2, textAlign: 'center' }}
+            />
+            <p style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 8, lineHeight: 1.5 }}>
+              You need both the pair code and invite secret to join.
+            </p>
           </div>
         )}
 
@@ -239,7 +313,7 @@ export default function UserSetup() {
             className="setup-start-btn"
             style={{ flex: 1, margin: 0 }}
             onClick={handleStart}
-            disabled={mode === 'join' && !joinReady}
+            disabled={mode === 'join' && (!joinReady || joinSecret.trim().length < 8)}
           >
             🚀 Start Challenge!
           </button>

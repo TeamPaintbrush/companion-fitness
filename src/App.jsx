@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { AppProvider, useStore } from './store.jsx'
+import { AppProvider, useStore, getChallengeLabel } from './store.jsx'
 import { useSync } from './hooks/useSync.js'
 import StatusBar from './components/StatusBar.jsx'
 import Header from './components/Header.jsx'
@@ -56,7 +56,7 @@ function AppContent() {
         {activeTab === 'challenge' && (
           <div className="tab-enter">
             <div style={{ padding: '12px 20px 4px' }}>
-              <h2 style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.5px' }}>100-Day Challenge</h2>
+              <h2 style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.5px' }}>{getChallengeLabel(state.challenge)}</h2>
               <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                   <FitnessIcon name={state.users[state.activeUser].emoji} size={14} />

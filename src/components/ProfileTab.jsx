@@ -1,14 +1,22 @@
 import React, { useState } from 'react'
-import { useStore, EMOJIS, WORKOUT_COLORS, COLOR_VALUES } from '../store.jsx'
+import { useStore, EMOJIS, WORKOUT_COLORS, COLOR_VALUES, getChallengeLabel } from '../store.jsx'
 import { FitnessIcon } from './FitnessIcon.jsx'
 
 export default function ProfileTab() {
   const { state, dispatch } = useStore()
-  const { users, challenge, activeUser } = state
+  const { users, challenge, pairId, pairSecret } = state
 
   const [editingUser, setEditingUser] = useState(null)
   const [confirmReset, setConfirmReset] = useState(false)
   const [confirmFullReset, setConfirmFullReset] = useState(false)
+  const [authToken, setAuthToken] = useState(() => {
+    try {
+      return localStorage.getItem('companion-fitness-id-token') || ''
+    } catch {
+      return ''
+    }
+  })
+  const [authSavedMsg, setAuthSavedMsg] = useState('')
 
   const [localUsers, setLocalUsers] = useState([
     { ...users[0] },
@@ -25,7 +33,13 @@ export default function ProfileTab() {
   }
 
   function updateStartDate(date) {
-    dispatch({ type: 'UPDATE_CHALLENGE', challenge: { startDate: date } })
+    const nextChallenge = { startDate: date }
+    if (challenge.endDate && challenge.endDate < date) nextChallenge.endDate = date
+    dispatch({ type: 'UPDATE_CHALLENGE', challenge: nextChallenge })
+  }
+
+  function updateEndDate(date) {
+    dispatch({ type: 'UPDATE_CHALLENGE', challenge: { endDate: date } })
   }
 
   function handleReset() {
@@ -48,6 +62,18 @@ export default function ProfileTab() {
     } else {
       setConfirmFullReset(true)
       setTimeout(() => setConfirmFullReset(false), 5000)
+    }
+  }
+
+  function saveAuthToken() {
+    try {
+      if (authToken.trim()) localStorage.setItem('companion-fitness-id-token', authToken.trim())
+      else localStorage.removeItem('companion-fitness-id-token')
+      setAuthSavedMsg('Security token saved.')
+      setTimeout(() => setAuthSavedMsg(''), 2200)
+    } catch {
+      setAuthSavedMsg('Unable to save token on this device.')
+      setTimeout(() => setAuthSavedMsg(''), 2200)
     }
   }
 
@@ -155,7 +181,7 @@ export default function ProfileTab() {
 
       {/* Challenge settings */}
       <div className="profile-section">
-        <div className="profile-section-title">100-Day Challenge</div>
+        <div className="profile-section-title">{getChallengeLabel(challenge)}</div>
         <div className="profile-card">
           <div className="profile-row">
             <span className="profile-row-label">Start Date</span>
@@ -176,8 +202,27 @@ export default function ProfileTab() {
             />
           </div>
           <div className="profile-row">
+            <span className="profile-row-label">End Date</span>
+            <input
+              type="date"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                fontSize: 14,
+                color: 'var(--text-secondary)',
+                outline: 'none',
+                fontFamily: 'inherit',
+                cursor: 'pointer',
+                colorScheme: 'dark'
+              }}
+              min={challenge.startDate || ''}
+              value={challenge.endDate || ''}
+              onChange={e => updateEndDate(e.target.value)}
+            />
+          </div>
+          <div className="profile-row">
             <span className="profile-row-label">Duration</span>
-            <span className="profile-row-value">100 days</span>
+            <span className="profile-row-value">{challenge.days} days</span>
           </div>
           <div
             className="action-row danger"
@@ -199,6 +244,52 @@ export default function ProfileTab() {
                 : '🧹 Full Reset App (profiles, pair code, workouts)'}
             </span>
             <span style={{ fontSize: 14 }}>›</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Security */}
+      <div className="profile-section">
+        <div className="profile-section-title">Security</div>
+        <div className="profile-card">
+          <div className="profile-row">
+            <span className="profile-row-label">Pair Code</span>
+            <span className="profile-row-value">{pairId || 'Not set'}</span>
+          </div>
+          <div className="profile-row">
+            <span className="profile-row-label">Invite Secret</span>
+            <span className="profile-row-value">{pairSecret || 'Not set'}</span>
+          </div>
+          <div className="profile-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+            <span className="profile-row-label" style={{ flex: 'unset' }}>JWT / Cognito ID Token</span>
+            <input
+              className="profile-row-input"
+              type="text"
+              placeholder="Paste ID token if JWT auth is enabled"
+              value={authToken}
+              onChange={e => setAuthToken(e.target.value)}
+              style={{ textAlign: 'left' }}
+            />
+            <button
+              onClick={saveAuthToken}
+              style={{
+                alignSelf: 'flex-end',
+                background: 'var(--bg-input)',
+                border: '1px solid var(--border)',
+                borderRadius: 8,
+                padding: '8px 12px',
+                fontSize: 12,
+                fontWeight: 700,
+                color: 'var(--text-secondary)',
+                cursor: 'pointer',
+                fontFamily: 'inherit'
+              }}
+            >
+              Save Token
+            </button>
+            {authSavedMsg && (
+              <div style={{ fontSize: 12, color: 'var(--accent-lime)' }}>{authSavedMsg}</div>
+            )}
           </div>
         </div>
       </div>

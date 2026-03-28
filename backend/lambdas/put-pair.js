@@ -1,7 +1,7 @@
 // PUT /pair/{pairId}/{userId}
 // Saves one user's workout data to the pair record (upsert).
 
-const { DynamoDBClient, PutItemCommand } = require('@aws-sdk/client-dynamodb')
+const { DynamoDBClient, PutItemCommand, QueryCommand } = require('@aws-sdk/client-dynamodb')
 const { marshall } = require('@aws-sdk/util-dynamodb')
 
 const client = new DynamoDBClient({})
@@ -11,7 +11,12 @@ const CORS = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin':  '*',
   'Access-Control-Allow-Methods': 'GET,PUT,OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type'
+  'Access-Control-Allow-Headers': 'Content-Type,Authorization,x-pair-secret'
+}
+
+function getHeader(event, key) {
+  const headers = event.headers || {}
+  return headers[key] || headers[key.toLowerCase()] || ''
 }
 
 exports.handler = async (event) => {
@@ -21,8 +26,12 @@ exports.handler = async (event) => {
   }
 
   const { pairId, userId } = event.pathParameters || {}
+  const pairSecret = getHeader(event, 'x-pair-secret')
   if (!pairId || !userId) {
     return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'Missing pairId or userId' }) }
+  }
+  if (!pairSecret) {
+    return { statusCode: 401, headers: CORS, body: JSON.stringify({ error: 'Missing pair secret' }) }
   }
 
   let body
@@ -33,11 +42,27 @@ exports.handler = async (event) => {
   }
 
   try {
+    const existing = await client.send(new QueryCommand({
+      TableName: TABLE,
+      KeyConditionExpression: 'pairId = :p',
+      ExpressionAttributeValues: { ':p': { S: pairId } },
+      Limit: 1
+    }))
+
+    if ((existing.Items || []).length > 0) {
+      const first = existing.Items[0]
+      const existingSecret = first?.pairSecret?.S || ''
+      if (!existingSecret || existingSecret !== pairSecret) {
+        return { statusCode: 403, headers: CORS, body: JSON.stringify({ error: 'Invalid pair secret' }) }
+      }
+    }
+
     await client.send(new PutItemCommand({
       TableName: TABLE,
       Item: marshall({
         pairId,
         userId,
+        pairSecret,
         workouts:    body.workouts    || {},
         userProfile: body.userProfile || {},
         challenge:   body.challenge   || {},

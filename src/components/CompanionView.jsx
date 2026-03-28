@@ -1,5 +1,15 @@
-import React, { useState } from 'react'
-import { useStore, getWorkoutsForDate } from '../store.jsx'
+import React, { useEffect, useState } from 'react'
+import {
+  useStore,
+  getWorkoutsForDate,
+  getStreak,
+  getBestStreak,
+  getMissedChallengeDates,
+  getMakeupUsage,
+  getMakeupEntries,
+  getAchievementProgress,
+  getChallengeLabel
+} from '../store.jsx'
 import WorkoutCard from './WorkoutCard.jsx'
 import { FitnessIcon } from './FitnessIcon.jsx'
 
@@ -19,9 +29,16 @@ function getWeekDates(selectedDate) {
   return week
 }
 
+function fmtDate(dateStr) {
+  return new Date(dateStr + 'T12:00:00').toLocaleDateString('default', {
+    month: 'short',
+    day: 'numeric'
+  })
+}
+
 export default function CompanionView() {
   const { state, dispatch } = useStore()
-  const { users, activeUser, selectedDate } = state
+  const { users, activeUser, selectedDate, challenge } = state
 
   // companion = the other user
   const companionId = activeUser === 0 ? 1 : 0
@@ -30,6 +47,23 @@ export default function CompanionView() {
 
   const [viewMode, setViewMode] = useState('companion') // 'mine' | 'companion'
   const [compDate, setCompDate] = useState(selectedDate)
+  const [showMakeupPicker, setShowMakeupPicker] = useState(false)
+  const [selectedMakeupWorkoutId, setSelectedMakeupWorkoutId] = useState('')
+  const [selectedMissedDate, setSelectedMissedDate] = useState('')
+  const [draftStartDate, setDraftStartDate] = useState(challenge.startDate || selectedDate)
+  const [draftEndDate, setDraftEndDate] = useState(challenge.endDate || selectedDate)
+  const [toastMessage, setToastMessage] = useState('')
+
+  useEffect(() => {
+    setDraftStartDate(challenge.startDate || selectedDate)
+    setDraftEndDate(challenge.endDate || selectedDate)
+  }, [challenge.startDate, challenge.endDate, selectedDate])
+
+  useEffect(() => {
+    if (!toastMessage) return
+    const timer = setTimeout(() => setToastMessage(''), 2400)
+    return () => clearTimeout(timer)
+  }, [toastMessage])
 
   const today = new Date().toISOString().split('T')[0]
   const weekDates = getWeekDates(compDate)
@@ -37,7 +71,69 @@ export default function CompanionView() {
   const displayUser = viewMode === 'mine' ? myUser : companionUser
 
   const workouts = getWorkoutsForDate(state, displayUserId, compDate)
-  const totalExercises = workouts.reduce((sum, w) => sum + (w.exercises?.length || 0), 0)
+  const streakNow = getStreak(state, displayUserId)
+  const bestStreak = getBestStreak(state, displayUserId)
+  const achievement = getAchievementProgress(state, displayUserId)
+
+  const monthKey = compDate.slice(0, 7)
+  const makeupUsage = getMakeupUsage(state, displayUserId, monthKey)
+  const makeupEntries = getMakeupEntries(state, displayUserId)
+  const restoredForMonth = makeupEntries.filter(entry => entry.monthKey === monthKey)
+
+  const missedDates = getMissedChallengeDates(state, activeUser)
+    .filter(date => date < compDate)
+  const selectedDateWorkouts = getWorkoutsForDate(state, activeUser, compDate)
+  const eligibleMakeupWorkouts = selectedDateWorkouts.filter(w => w.completed)
+  const canOpenMakeupPicker = viewMode === 'mine' && eligibleMakeupWorkouts.length > 0 && missedDates.length > 0 && makeupUsage.used < 3
+
+  function openMakeupPicker() {
+    if (!canOpenMakeupPicker) return
+    setSelectedMakeupWorkoutId(eligibleMakeupWorkouts[0].id)
+    setSelectedMissedDate(missedDates[0])
+    setShowMakeupPicker(true)
+  }
+
+  function applyMakeupDay() {
+    if (!canOpenMakeupPicker || !selectedMakeupWorkoutId || !selectedMissedDate) return
+    const workout = eligibleMakeupWorkouts.find(w => w.id === selectedMakeupWorkoutId)
+    if (!workout) return
+    dispatch({
+      type: 'UPDATE_WORKOUT',
+      userId: activeUser,
+      date: compDate,
+      workout: {
+        ...workout,
+        isMakeup: true,
+        makeupForDate: selectedMissedDate
+      }
+    })
+    setToastMessage(`Makeup restored for ${fmtDate(selectedMissedDate)}.`)
+    setShowMakeupPicker(false)
+  }
+
+  function removeMakeupTag(entry) {
+    const taggedWorkout = getWorkoutsForDate(state, activeUser, entry.workoutDate).find(w => w.id === entry.workoutId)
+    if (!taggedWorkout) return
+    dispatch({
+      type: 'UPDATE_WORKOUT',
+      userId: activeUser,
+      date: entry.workoutDate,
+      workout: {
+        ...taggedWorkout,
+        isMakeup: false,
+        makeupForDate: null
+      }
+    })
+    setToastMessage(`Makeup revoked for ${fmtDate(entry.missedDate)}.`)
+  }
+
+  function saveChallengeDates() {
+    let start = draftStartDate
+    let end = draftEndDate
+    if (end < start) end = start
+    dispatch({ type: 'UPDATE_CHALLENGE', challenge: { startDate: start, endDate: end } })
+    setToastMessage('Challenge range saved.')
+  }
 
   const dateLabel = (() => {
     if (compDate === today) return 'Today'
@@ -47,6 +143,8 @@ export default function CompanionView() {
 
   return (
     <div className="companion-screen scroll-section">
+      {toastMessage && <div className="companion-toast">{toastMessage}</div>}
+
       {/* Toggle */}
       <div className="companion-toggle">
         <button
@@ -120,6 +218,122 @@ export default function CompanionView() {
           : ' — No workouts'}
       </div>
 
+      <div className="companion-insights-grid">
+        {viewMode === 'mine' && (
+          <div className="insight-card">
+            <div className="insight-title">Challenge Settings</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 10 }}>
+              {getChallengeLabel(challenge)}
+            </div>
+            <div className="challenge-settings-grid">
+              <label className="challenge-settings-label">
+                Start
+                <input
+                  className="challenge-settings-input"
+                  type="date"
+                  value={draftStartDate}
+                  onChange={e => {
+                    const nextStart = e.target.value
+                    setDraftStartDate(nextStart)
+                    if (draftEndDate < nextStart) setDraftEndDate(nextStart)
+                  }}
+                />
+              </label>
+              <label className="challenge-settings-label">
+                End
+                <input
+                  className="challenge-settings-input"
+                  type="date"
+                  min={draftStartDate}
+                  value={draftEndDate}
+                  onChange={e => setDraftEndDate(e.target.value)}
+                />
+              </label>
+            </div>
+            <button className="makeup-apply-btn" onClick={saveChallengeDates}>
+              Save challenge range
+            </button>
+          </div>
+        )}
+
+        <div className="insight-card">
+          <div className="insight-title">Streak Tracker</div>
+          <div className="insight-row">
+            <span>Current Streak</span>
+            <strong>{streakNow}🔥</strong>
+          </div>
+          <div className="insight-row">
+            <span>Best Streak</span>
+            <strong>{bestStreak}🏆</strong>
+          </div>
+        </div>
+
+        <div className="insight-card">
+          <div className="insight-title">Makeup Day ⏰</div>
+          <div className="insight-row">
+            <span>Used ({monthKey})</span>
+            <strong>{makeupUsage.used}/3</strong>
+          </div>
+          <div className="makeup-dots" aria-hidden="true">
+            {[0, 1, 2].map(i => (
+              <span key={i} className={`makeup-dot ${i < makeupUsage.used ? 'used' : ''}`} />
+            ))}
+          </div>
+          {viewMode === 'mine' ? (
+            <>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 8 }}>
+                Missed days available: {missedDates.length}
+              </div>
+              <button
+                className="makeup-apply-btn"
+                onClick={openMakeupPicker}
+                disabled={!canOpenMakeupPicker}
+              >
+                {canOpenMakeupPicker
+                  ? 'Open makeup picker'
+                  : 'Need a completed workout, available miss, and monthly slot'}
+              </button>
+            </>
+          ) : (
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 8 }}>
+              Viewing {displayUser.name}'s makeup usage
+            </div>
+          )}
+          {restoredForMonth.length > 0 && (
+            <div style={{ marginTop: 8 }}>
+              {restoredForMonth.map(entry => (
+                <div key={`${entry.workoutId}-${entry.missedDate}`} className="restored-row">
+                  <span>Restored {fmtDate(entry.missedDate)} using {fmtDate(entry.workoutDate)}</span>
+                  {viewMode === 'mine' && (
+                    <button onClick={() => removeMakeupTag(entry)}>Revoke</button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="insight-card companion-achievements">
+          <div className="insight-title">Achievements</div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+            {achievement.unlockedCount}/{achievement.totalCount} unlocked
+          </div>
+          <div className="achievement-list">
+            {achievement.achievements.map(item => (
+              <div key={item.id} className={`achievement-item ${item.unlocked ? 'unlocked' : ''}`}>
+                <span>{item.icon}</span>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: item.unlocked ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                    {item.title}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{item.description}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
       {/* Workouts */}
       <div className="workout-cards-list">
         {workouts.length === 0 ? (
@@ -188,6 +402,58 @@ export default function CompanionView() {
           </div>
         </div>
       </div>
+
+      {showMakeupPicker && (
+        <div className="makeup-modal-overlay" onClick={() => setShowMakeupPicker(false)}>
+          <div className="makeup-modal" onClick={e => e.stopPropagation()}>
+            <div className="insight-title" style={{ marginBottom: 10 }}>Makeup Day Picker</div>
+
+            <div className="makeup-picker-group">
+              <div className="makeup-picker-label">Select missed day to restore</div>
+              <div className="makeup-picker-list">
+                {missedDates.map(date => (
+                  <button
+                    key={date}
+                    className={`makeup-picker-item ${selectedMissedDate === date ? 'selected' : ''}`}
+                    onClick={() => setSelectedMissedDate(date)}
+                  >
+                    {fmtDate(date)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="makeup-picker-group">
+              <div className="makeup-picker-label">Select completed workout on {fmtDate(compDate)}</div>
+              <div className="makeup-picker-list">
+                {eligibleMakeupWorkouts.map(workout => (
+                  <button
+                    key={workout.id}
+                    className={`makeup-picker-item ${selectedMakeupWorkoutId === workout.id ? 'selected' : ''}`}
+                    onClick={() => setSelectedMakeupWorkoutId(workout.id)}
+                  >
+                    {workout.name || 'Workout'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="makeup-picker-actions">
+              <button onClick={() => setShowMakeupPicker(false)} className="makeup-picker-cancel">
+                Cancel
+              </button>
+              <button
+                onClick={applyMakeupDay}
+                className="makeup-apply-btn"
+                disabled={!selectedMakeupWorkoutId || !selectedMissedDate}
+                style={{ marginTop: 0 }}
+              >
+                Apply makeup day
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -1,11 +1,11 @@
-import React, { useEffect, useRef } from 'react'
-import { useStore, getCompletedDaysCount, getStreak } from '../store.jsx'
+import React from 'react'
+import { useStore, getCompletedDaysCount, getStreak, getBestStreak, getChallengeLabel, getMakeupEntries } from '../store.jsx'
 import { FitnessIcon } from './FitnessIcon.jsx'
 
 export default function Challenge100() {
   const { state } = useStore()
   const { challenge, activeUser, users } = state
-  const { startDate } = challenge
+  const { startDate, endDate, days } = challenge
 
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -13,6 +13,8 @@ export default function Challenge100() {
 
   const completedDays = getCompletedDaysCount(state, activeUser, startDate)
   const streak = getStreak(state, activeUser)
+  const bestStreak = getBestStreak(state, activeUser)
+  const restoredSet = new Set(getMakeupEntries(state, activeUser).map(entry => entry.missedDate))
   const user = users[activeUser]
 
   function getDayStatus(dayNum) {
@@ -25,9 +27,11 @@ export default function Challenge100() {
     const targetStr = targetDate.toISOString().split('T')[0]
 
     const workouts = state.workouts[`user${activeUser}`][targetStr] || []
+    const isRestored = restoredSet.has(targetStr)
 
     if (targetStr === todayStr) return workouts.length > 0 ? 'completed' : 'today'
     if (targetDate > today) return 'future'
+    if (isRestored) return 'makeup'
     return workouts.length > 0 ? 'completed' : 'missed'
   }
 
@@ -36,25 +40,25 @@ export default function Challenge100() {
     const start = new Date(startDate)
     start.setHours(0, 0, 0, 0)
     const diff = Math.floor((today - start) / (1000 * 60 * 60 * 24))
-    return Math.max(0, Math.min(100, diff + 1))
+    return Math.max(0, Math.min(days, diff + 1))
   }
 
   const currentDay = getCurrentDay()
-  const progressPct = Math.round((completedDays / 100) * 100)
+  const progressPct = Math.min(100, Math.round((completedDays / Math.max(days, 1)) * 100))
 
   return (
     <div className="challenge-screen scroll-section">
       {/* Header card */}
       <div className="challenge-header-card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-          <div className="challenge-title">100-Day Challenge</div>
+          <div className="challenge-title">{getChallengeLabel(challenge)}</div>
           <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
             <FitnessIcon name={user.emoji} size={22} />
           </span>
         </div>
         <div className="challenge-subtitle">
           {startDate
-            ? `Started ${new Date(startDate + 'T12:00:00').toLocaleDateString('default', { month: 'long', day: 'numeric', year: 'numeric' })}`
+            ? `From ${new Date(startDate + 'T12:00:00').toLocaleDateString('default', { month: 'short', day: 'numeric', year: 'numeric' })} to ${new Date(endDate + 'T12:00:00').toLocaleDateString('default', { month: 'short', day: 'numeric', year: 'numeric' })}`
             : 'No challenge started yet'}
         </div>
 
@@ -73,7 +77,7 @@ export default function Challenge100() {
         </div>
 
         {/* Stats */}
-        <div className="challenge-stats-row">
+        <div className="challenge-stats-row" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
           <div className="challenge-stat">
             <div className="challenge-stat-num">{currentDay}</div>
             <div className="challenge-stat-label">Current Day</div>
@@ -86,14 +90,20 @@ export default function Challenge100() {
             <div className="challenge-stat-num" style={{ color: 'var(--accent-amber)' }}>
               {streak}🔥
             </div>
-            <div className="challenge-stat-label">Streak</div>
+            <div className="challenge-stat-label">Current</div>
+          </div>
+          <div className="challenge-stat">
+            <div className="challenge-stat-num" style={{ color: 'var(--accent-blue)' }}>
+              {bestStreak}🏆
+            </div>
+            <div className="challenge-stat-label">Best</div>
           </div>
         </div>
       </div>
 
       {/* Days grid */}
       <div className="days-grid">
-        {Array.from({ length: 100 }, (_, i) => {
+        {Array.from({ length: days }, (_, i) => {
           const dayNum = i + 1
           const status = getDayStatus(dayNum)
 
@@ -113,6 +123,7 @@ export default function Challenge100() {
       <div style={{ display: 'flex', gap: 16, padding: '16px 0 8px', flexWrap: 'wrap', justifyContent: 'center' }}>
         {[
           { cls: 'completed', label: 'Done' },
+          { cls: 'makeup', label: 'Restored' },
           { cls: 'today', label: 'Today' },
           { cls: 'missed', label: 'Missed' },
           { cls: 'future', label: 'Upcoming' }
@@ -124,7 +135,7 @@ export default function Challenge100() {
         ))}
       </div>
 
-      {completedDays === 100 && (
+      {completedDays >= days && (
         <div style={{
           textAlign: 'center',
           padding: '24px 20px',
@@ -140,7 +151,7 @@ export default function Challenge100() {
             Challenge Complete!
           </div>
           <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
-            You crushed all 100 days! Amazing work, {user.name}!
+            You crushed all {days} days! Amazing work, {user.name}!
           </div>
         </div>
       )}

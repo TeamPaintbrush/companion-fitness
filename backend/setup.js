@@ -14,7 +14,14 @@
 const { DynamoDBClient, CreateTableCommand, DescribeTableCommand } = require('@aws-sdk/client-dynamodb')
 const { IAMClient, CreateRoleCommand, AttachRolePolicyCommand, GetRoleCommand } = require('@aws-sdk/client-iam')
 const { LambdaClient, CreateFunctionCommand, UpdateFunctionCodeCommand, GetFunctionCommand, AddPermissionCommand } = require('@aws-sdk/client-lambda')
-const { ApiGatewayV2Client, CreateApiCommand, CreateIntegrationCommand, CreateRouteCommand, CreateStageCommand } = require('@aws-sdk/client-apigatewayv2')
+const {
+  ApiGatewayV2Client,
+  CreateApiCommand,
+  CreateIntegrationCommand,
+  CreateRouteCommand,
+  CreateStageCommand,
+  CreateAuthorizerCommand
+} = require('@aws-sdk/client-apigatewayv2')
 const { STSClient, GetCallerIdentityCommand } = require('@aws-sdk/client-sts')
 const AdmZip = require('adm-zip')
 const fs   = require('fs')
@@ -27,6 +34,9 @@ const ROLE_NAME   = 'companion-fitness-lambda-role'
 const GET_FN      = 'companion-fitness-get-pair'
 const PUT_FN      = 'companion-fitness-put-pair'
 const API_NAME    = 'companion-fitness-api'
+const COGNITO_USER_POOL_ID = process.env.COGNITO_USER_POOL_ID || ''
+const COGNITO_CLIENT_ID    = process.env.COGNITO_CLIENT_ID || ''
+const USE_JWT_AUTH         = !!(COGNITO_USER_POOL_ID && COGNITO_CLIENT_ID)
 
 const dynamo = new DynamoDBClient({ region: REGION })
 const iam    = new IAMClient({ region: REGION })
@@ -122,10 +132,26 @@ async function setupApi(getFnArn, putFnArn, accountId) {
     CorsConfiguration: {
       AllowOrigins: ['*'],
       AllowMethods: ['GET', 'PUT', 'OPTIONS'],
-      AllowHeaders: ['Content-Type']
+      AllowHeaders: ['Content-Type', 'Authorization', 'x-pair-secret']
     }
   }))
   console.log('created ✓')
+
+  let authorizerId = null
+  if (USE_JWT_AUTH) {
+    const issuer = `https://cognito-idp.${REGION}.amazonaws.com/${COGNITO_USER_POOL_ID}`
+    const auth = await apigw.send(new CreateAuthorizerCommand({
+      ApiId,
+      Name: 'companion-fitness-cognito-jwt',
+      AuthorizerType: 'JWT',
+      IdentitySource: ['$request.header.Authorization'],
+      JwtConfiguration: {
+        Issuer: issuer,
+        Audience: [COGNITO_CLIENT_ID]
+      }
+    }))
+    authorizerId = auth.AuthorizerId
+  }
 
   // Grant API Gateway permission to invoke each Lambda
   for (const [fnName, fnArn] of [[GET_FN, getFnArn], [PUT_FN, putFnArn]]) {
@@ -147,8 +173,20 @@ async function setupApi(getFnArn, putFnArn, accountId) {
   const putInteg = await apigw.send(new CreateIntegrationCommand({ ApiId, IntegrationType: 'AWS_PROXY', IntegrationUri: putFnArn, PayloadFormatVersion: '2.0' }))
 
   // Routes
-  await apigw.send(new CreateRouteCommand({ ApiId, RouteKey: 'GET /pair/{pairId}',          Target: `integrations/${getInteg.IntegrationId}` }))
-  await apigw.send(new CreateRouteCommand({ ApiId, RouteKey: 'PUT /pair/{pairId}/{userId}',  Target: `integrations/${putInteg.IntegrationId}` }))
+  await apigw.send(new CreateRouteCommand({
+    ApiId,
+    RouteKey: 'GET /pair/{pairId}',
+    Target: `integrations/${getInteg.IntegrationId}`,
+    AuthorizationType: USE_JWT_AUTH ? 'JWT' : 'NONE',
+    AuthorizerId: authorizerId || undefined
+  }))
+  await apigw.send(new CreateRouteCommand({
+    ApiId,
+    RouteKey: 'PUT /pair/{pairId}/{userId}',
+    Target: `integrations/${putInteg.IntegrationId}`,
+    AuthorizationType: USE_JWT_AUTH ? 'JWT' : 'NONE',
+    AuthorizerId: authorizerId || undefined
+  }))
 
   // Auto-deploy stage
   await apigw.send(new CreateStageCommand({ ApiId, StageName: '$default', AutoDeploy: true }))
@@ -182,7 +220,13 @@ async function main() {
     console.log('  1. Go to GitHub repo → Settings → Secrets and variables → Actions')
     console.log(`  2. Add secret  VITE_API_URL  =  ${apiUrl}`)
     console.log('  3. Add secret  VITE_BASE_URL  =  /companion-fitness/')
-    console.log('  4. Push to GitHub — Actions will build and deploy to Pages automatically\n')
+    if (USE_JWT_AUTH) {
+      console.log('  4. Configure frontend to provide Cognito ID token in localStorage key companion-fitness-id-token')
+      console.log('  5. Push to GitHub — Actions will build and deploy to Pages automatically\n')
+    } else {
+      console.log('  4. (Optional) Re-run setup with COGNITO_USER_POOL_ID and COGNITO_CLIENT_ID to enable JWT auth')
+      console.log('  5. Push to GitHub — Actions will build and deploy to Pages automatically\n')
+    }
   } catch (err) {
     console.error('\n❌  Setup failed:', err.message)
     console.error(err)
