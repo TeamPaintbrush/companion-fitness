@@ -53,6 +53,9 @@ exports.handler = async (event) => {
       const first = existing.Items[0]
       const existingSecret = first?.pairSecret?.S || ''
       if (!existingSecret || existingSecret !== pairSecret) {
+        if (userId === 'user0') {
+          return { statusCode: 409, headers: CORS, body: JSON.stringify({ error: 'Pair code already in use' }) }
+        }
         return { statusCode: 403, headers: CORS, body: JSON.stringify({ error: 'Invalid pair secret' }) }
       }
     } else if (userId !== 'user0') {

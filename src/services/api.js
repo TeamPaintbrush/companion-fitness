@@ -1,5 +1,24 @@
 const BASE = import.meta.env.VITE_API_URL
 
+function recordApiFailure(event) {
+  try {
+    const key = 'companion-fitness-api-errors'
+    const raw = localStorage.getItem(key)
+    const parsed = JSON.parse(raw || '[]')
+    const list = Array.isArray(parsed) ? parsed : []
+    list.push({ ts: new Date().toISOString(), ...event })
+    localStorage.setItem(key, JSON.stringify(list.slice(-50)))
+  } catch {
+    // Non-blocking telemetry best effort only.
+  }
+}
+
+function buildApiError(method, path, status) {
+  const err = new Error(`${method} ${path} failed: ${status}`)
+  err.status = status
+  return err
+}
+
 function getAuthToken(explicitToken) {
   if (explicitToken) return explicitToken
   if (import.meta.env.VITE_JWT_TOKEN) return import.meta.env.VITE_JWT_TOKEN
@@ -25,10 +44,14 @@ function buildHeaders({ pairSecret, authToken, withJson } = {}) {
  *   [{ userId, workouts, userProfile, challenge, updatedAt }, ...]
  */
 export async function getPair(pairId, opts = {}) {
-  const res = await fetch(`${BASE}/pair/${pairId}`, {
+  const path = `/pair/${pairId}`
+  const res = await fetch(`${BASE}${path}`, {
     headers: buildHeaders(opts)
   })
-  if (!res.ok) throw new Error(`GET /pair failed: ${res.status}`)
+  if (!res.ok) {
+    recordApiFailure({ method: 'GET', path, status: res.status })
+    throw buildApiError('GET', path, res.status)
+  }
   return res.json()
 }
 
@@ -37,11 +60,15 @@ export async function getPair(pairId, opts = {}) {
  * payload = { workouts, userProfile, challenge }
  */
 export async function putPairUser(pairId, userId, payload, opts = {}) {
-  const res = await fetch(`${BASE}/pair/${pairId}/${userId}`, {
+  const path = `/pair/${pairId}/${userId}`
+  const res = await fetch(`${BASE}${path}`, {
     method: 'PUT',
     headers: buildHeaders({ ...opts, withJson: true }),
     body: JSON.stringify(payload)
   })
-  if (!res.ok) throw new Error(`PUT /pair failed: ${res.status}`)
+  if (!res.ok) {
+    recordApiFailure({ method: 'PUT', path, status: res.status })
+    throw buildApiError('PUT', path, res.status)
+  }
   return res.json()
 }

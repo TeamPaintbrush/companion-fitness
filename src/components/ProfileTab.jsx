@@ -11,6 +11,7 @@ export default function ProfileTab() {
   const [editingUser, setEditingUser] = useState(null)
   const [confirmReset, setConfirmReset] = useState(false)
   const [confirmFullReset, setConfirmFullReset] = useState(false)
+  const [showPairSecret, setShowPairSecret] = useState(false)
   const [authToken, setAuthToken] = useState(() => {
     try {
       return localStorage.getItem('companion-fitness-id-token') || ''
@@ -260,8 +261,29 @@ export default function ProfileTab() {
           </div>
           <div className="profile-row">
             <span className="profile-row-label">Invite Secret</span>
-            <span className="profile-row-value">{pairSecret || 'Not set'}</span>
+            <span className="profile-row-value">{pairSecret ? (showPairSecret ? pairSecret : `${pairSecret.slice(0, 4)}••••`) : 'Not set'}</span>
           </div>
+          {pairSecret && (
+            <button
+              onClick={() => setShowPairSecret(v => !v)}
+              style={{
+                alignSelf: 'flex-end',
+                background: 'var(--bg-input)',
+                border: '1px solid var(--border)',
+                borderRadius: 8,
+                padding: '8px 12px',
+                fontSize: 12,
+                fontWeight: 700,
+                color: 'var(--text-secondary)',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                marginTop: 8,
+                marginBottom: 4
+              }}
+            >
+              {showPairSecret ? 'Hide Secret' : 'Reveal Secret'}
+            </button>
+          )}
           <div className="profile-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
             <span className="profile-row-label" style={{ flex: 'unset' }}>JWT / Cognito ID Token</span>
             <input

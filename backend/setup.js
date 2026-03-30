@@ -16,9 +16,12 @@ const { IAMClient, CreateRoleCommand, AttachRolePolicyCommand, GetRoleCommand } 
 const { LambdaClient, CreateFunctionCommand, UpdateFunctionCodeCommand, GetFunctionCommand, AddPermissionCommand } = require('@aws-sdk/client-lambda')
 const {
   ApiGatewayV2Client,
+  GetApisCommand,
   CreateApiCommand,
   CreateIntegrationCommand,
+  GetRoutesCommand,
   CreateRouteCommand,
+  UpdateRouteCommand,
   CreateStageCommand,
   CreateAuthorizerCommand
 } = require('@aws-sdk/client-apigatewayv2')
@@ -126,16 +129,29 @@ async function deployLambda(name, filename, roleArn) {
 // ── API Gateway ───────────────────────────────────────────────────────────────
 async function setupApi(getFnArn, putFnArn, accountId) {
   process.stdout.write('API Gateway... ')
-  const { ApiId, ApiEndpoint } = await apigw.send(new CreateApiCommand({
-    Name:            API_NAME,
-    ProtocolType:    'HTTP',
-    CorsConfiguration: {
-      AllowOrigins: ['*'],
-      AllowMethods: ['GET', 'PUT', 'OPTIONS'],
-      AllowHeaders: ['Content-Type', 'Authorization', 'x-pair-secret']
-    }
-  }))
-  console.log('created ✓')
+  const apis = await apigw.send(new GetApisCommand({ MaxResults: '500' }))
+  const existingApi = (apis.Items || []).find(api => api.Name === API_NAME)
+  let ApiId
+  let ApiEndpoint
+
+  if (existingApi) {
+    ApiId = existingApi.ApiId
+    ApiEndpoint = existingApi.ApiEndpoint || `https://${existingApi.ApiId}.execute-api.${REGION}.amazonaws.com`
+    console.log('reused ✓')
+  } else {
+    const created = await apigw.send(new CreateApiCommand({
+      Name:            API_NAME,
+      ProtocolType:    'HTTP',
+      CorsConfiguration: {
+        AllowOrigins: ['*'],
+        AllowMethods: ['GET', 'PUT', 'OPTIONS'],
+        AllowHeaders: ['Content-Type', 'Authorization', 'x-pair-secret']
+      }
+    }))
+    ApiId = created.ApiId
+    ApiEndpoint = created.ApiEndpoint
+    console.log('created ✓')
+  }
 
   let authorizerId = null
   if (USE_JWT_AUTH) {
@@ -173,23 +189,39 @@ async function setupApi(getFnArn, putFnArn, accountId) {
   const putInteg = await apigw.send(new CreateIntegrationCommand({ ApiId, IntegrationType: 'AWS_PROXY', IntegrationUri: putFnArn, PayloadFormatVersion: '2.0' }))
 
   // Routes
-  await apigw.send(new CreateRouteCommand({
-    ApiId,
-    RouteKey: 'GET /pair/{pairId}',
-    Target: `integrations/${getInteg.IntegrationId}`,
-    AuthorizationType: USE_JWT_AUTH ? 'JWT' : 'NONE',
-    AuthorizerId: authorizerId || undefined
-  }))
-  await apigw.send(new CreateRouteCommand({
-    ApiId,
-    RouteKey: 'PUT /pair/{pairId}/{userId}',
-    Target: `integrations/${putInteg.IntegrationId}`,
-    AuthorizationType: USE_JWT_AUTH ? 'JWT' : 'NONE',
-    AuthorizerId: authorizerId || undefined
-  }))
+  const routes = await apigw.send(new GetRoutesCommand({ ApiId, MaxResults: '500' }))
+  const routeMap = new Map((routes.Items || []).map(r => [r.RouteKey, r]))
+
+  for (const routeDef of [
+    { key: 'GET /pair/{pairId}', integId: getInteg.IntegrationId },
+    { key: 'PUT /pair/{pairId}/{userId}', integId: putInteg.IntegrationId }
+  ]) {
+    const existingRoute = routeMap.get(routeDef.key)
+    if (existingRoute) {
+      await apigw.send(new UpdateRouteCommand({
+        ApiId,
+        RouteId: existingRoute.RouteId,
+        Target: `integrations/${routeDef.integId}`,
+        AuthorizationType: USE_JWT_AUTH ? 'JWT' : 'NONE',
+        AuthorizerId: authorizerId || undefined
+      }))
+    } else {
+      await apigw.send(new CreateRouteCommand({
+        ApiId,
+        RouteKey: routeDef.key,
+        Target: `integrations/${routeDef.integId}`,
+        AuthorizationType: USE_JWT_AUTH ? 'JWT' : 'NONE',
+        AuthorizerId: authorizerId || undefined
+      }))
+    }
+  }
 
   // Auto-deploy stage
-  await apigw.send(new CreateStageCommand({ ApiId, StageName: '$default', AutoDeploy: true }))
+  try {
+    await apigw.send(new CreateStageCommand({ ApiId, StageName: '$default', AutoDeploy: true }))
+  } catch (e) {
+    if (e.name !== 'ConflictException') throw e
+  }
 
   return ApiEndpoint
 }

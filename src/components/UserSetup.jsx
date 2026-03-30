@@ -25,6 +25,19 @@ function getDurationDays(startDate, endDate) {
   return Math.max(1, Math.floor((end - start) / (1000 * 60 * 60 * 24)) + 1)
 }
 
+function logOnboardingEvent(type, detail = {}) {
+  try {
+    const key = 'companion-fitness-onboarding-events'
+    const raw = localStorage.getItem(key)
+    const parsed = JSON.parse(raw || '[]')
+    const list = Array.isArray(parsed) ? parsed : []
+    list.push({ ts: new Date().toISOString(), type, ...detail })
+    localStorage.setItem(key, JSON.stringify(list.slice(-50)))
+  } catch {
+    // Best effort telemetry only.
+  }
+}
+
 // Share pair code + secret via native share sheet (SMS etc.) or clipboard fallback
 async function sharePairCode(pairCode, secret) {
   const text = [
@@ -117,6 +130,8 @@ export default function UserSetup() {
   const [joinSecret, setJoinSecret] = useState('')
   const [joining, setJoining] = useState(false)
   const [joinError, setJoinError] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState('')
 
   const [showResetToast, setShowResetToast] = useState(false)
 
@@ -145,7 +160,33 @@ export default function UserSetup() {
     })
   }
 
-  function handleStartCreate() {
+  async function handleStartCreate() {
+    if (creating) return
+    setCreating(true)
+    setCreateError('')
+
+    try {
+      const existing = await getPair(genCode, { pairSecret: inviteSecret })
+      if (Array.isArray(existing) && existing.length > 0) {
+        setCreating(false)
+        setCreateError('That pair code is already in use. Tap Generate new code and try again.')
+        logOnboardingEvent('create_code_conflict', { pairId: genCode })
+        return
+      }
+    } catch (err) {
+      const status = Number(err?.status || 0)
+      if (status === 403) {
+        setCreating(false)
+        setCreateError('That pair code is already in use. Tap Generate new code and try again.')
+        logOnboardingEvent('create_code_conflict', { pairId: genCode, status })
+        return
+      }
+      setCreating(false)
+      setCreateError('Unable to verify pair code right now. Check your connection and try again.')
+      logOnboardingEvent('create_verify_failed', { pairId: genCode, status: status || 'unknown' })
+      return
+    }
+
     dispatch({
       type: 'COMPLETE_SETUP',
       users: users.map(u => ({ name: u.name.trim() || 'User', emoji: u.emoji, color: u.color })),
@@ -156,6 +197,7 @@ export default function UserSetup() {
       pairSecret: inviteSecret,
       myUserId: 0
     })
+    logOnboardingEvent('create_success', { pairId: genCode })
   }
 
   async function handleStartJoin() {
@@ -177,6 +219,7 @@ export default function UserSetup() {
       if (!creatorRecord) {
         setJoining(false)
         setJoinError('This pair is not active yet. Ask your partner to start the challenge first, then try again.')
+        logOnboardingEvent('join_no_creator', { pairId: code })
         return
       }
       if (creatorRecord) {
@@ -187,14 +230,18 @@ export default function UserSetup() {
         if (creatorRecord.challenge) challengeData = creatorRecord.challenge
       }
     } catch (err) {
-      // Wrong code or network error
-      const msg = err.message || ''
-      if (msg.includes('403') || msg.includes('401')) {
-        setJoining(false)
+      // Fail closed on all join fetch errors.
+      const status = Number(err?.status || 0)
+      setJoining(false)
+      if (status === 401 || status === 403) {
         setJoinError('Invalid pair code or invite secret. Double-check with your partner.')
-        return
+      } else if (status === 409) {
+        setJoinError('This pair is not active yet. Ask your partner to start the challenge first, then try again.')
+      } else {
+        setJoinError('Could not connect to pairing service. Check your connection and try again.')
       }
-      // Other errors (network down etc.) — proceed with placeholders
+      logOnboardingEvent('join_failed', { pairId: code, status: status || 'unknown' })
+      return
     }
 
     const myProfile = mySeededProfile && mySeededProfile.name
@@ -211,6 +258,7 @@ export default function UserSetup() {
       pairSecret: secret,
       myUserId: 1
     })
+    logOnboardingEvent('join_success', { pairId: code })
   }
 
   const ResetToast = showResetToast ? (
@@ -413,6 +461,9 @@ export default function UserSetup() {
             </div>
             <div style={{ fontSize: 19, fontWeight: 800, letterSpacing: 2, color: '#fff', textAlign: 'center' }}>{inviteSecret}</div>
           </div>
+          {createError && (
+            <p style={{ fontSize: 13, color: '#f87171', marginBottom: 10, fontWeight: 600 }}>{createError}</p>
+          )}
 
           {/* Share button — uses native phone share sheet → SMS etc. */}
           <button
@@ -454,10 +505,11 @@ export default function UserSetup() {
           </button>
           <button
             className="setup-start-btn"
-            style={{ flex: 1, margin: 0 }}
+            style={{ flex: 1, margin: 0, opacity: creating ? 0.45 : 1 }}
             onClick={handleStartCreate}
+            disabled={creating}
           >
-            🚀 Start Challenge!
+            {creating ? '⏳ Verifying…' : '🚀 Start Challenge!'}
           </button>
         </div>
       </div>
