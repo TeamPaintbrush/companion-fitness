@@ -37,10 +37,8 @@ jobs:
       - name: Build
         run: npm run build
         env:
-          # Set in: GitHub repo → Settings → Secrets and variables → Actions
           VITE_API_URL:  ${{ secrets.VITE_API_URL }}
-          # Set to /your-repo-name/  e.g. /companion-fitness/
-          VITE_BASE_URL: ${{ secrets.VITE_BASE_URL }}
+          VITE_BASE_URL: /companion-fitness/
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
