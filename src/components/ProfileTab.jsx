@@ -371,7 +371,7 @@ export default function ProfileTab() {
           </div>
           <div className="profile-row">
             <span className="profile-row-label">Storage</span>
-            <span className="profile-row-value">Local + AWS sync</span>
+            <span className="profile-row-value">AWS synced (with local backup)</span>
           </div>
           <a
             className="action-row"
