@@ -3,6 +3,7 @@ import { useStore, EMOJIS, WORKOUT_COLORS, COLOR_VALUES, getChallengeLabel } fro
 import { FitnessIcon } from './FitnessIcon.jsx'
 
 const CONTACT_EMAIL = 'apps@paintbrushmarketing.net'
+const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0'
 
 export default function ProfileTab() {
   const { state, dispatch } = useStore()
@@ -366,7 +367,7 @@ export default function ProfileTab() {
           </div>
           <div className="profile-row" onClick={handleVersionTap} style={{ cursor: 'pointer' }}>
             <span className="profile-row-label">Version</span>
-            <span className="profile-row-value">1.0.0</span>
+            <span className="profile-row-value">{APP_VERSION}</span>
           </div>
           <div className="profile-row">
             <span className="profile-row-label">Storage</span>
