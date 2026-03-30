@@ -2,6 +2,8 @@ import React, { useState } from 'react'
 import { useStore, EMOJIS, WORKOUT_COLORS, COLOR_VALUES, getChallengeLabel } from '../store.jsx'
 import { FitnessIcon } from './FitnessIcon.jsx'
 
+const CONTACT_EMAIL = 'apps@paintbrushmarketing.net'
+
 export default function ProfileTab() {
   const { state, dispatch } = useStore()
   const { users, challenge, pairId, pairSecret } = state
@@ -308,8 +310,16 @@ export default function ProfileTab() {
           </div>
           <div className="profile-row">
             <span className="profile-row-label">Storage</span>
-            <span className="profile-row-value">Local only</span>
+            <span className="profile-row-value">Local + AWS sync</span>
           </div>
+          <a
+            className="action-row"
+            href={`mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent('Companion Fitness Support')}`}
+            style={{ textDecoration: 'none', marginTop: 10 }}
+          >
+            <span style={{ flex: 1, fontSize: 14 }}>✉️ Contact Us ({CONTACT_EMAIL})</span>
+            <span style={{ fontSize: 14 }}>›</span>
+          </a>
         </div>
       </div>
     </div>
