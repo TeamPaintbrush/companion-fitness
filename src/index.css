@@ -618,8 +618,11 @@ body {
   color: #000000;
   box-shadow: 0 4px 20px rgba(255, 255, 255, 0.25);
   transition: all var(--transition-fast);
-  z-index: 50;
+  z-index: 150;
   line-height: 1;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  isolation: isolate;
 }
 
 .fab:active {
