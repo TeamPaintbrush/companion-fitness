@@ -55,6 +55,9 @@ exports.handler = async (event) => {
       if (!existingSecret || existingSecret !== pairSecret) {
         return { statusCode: 403, headers: CORS, body: JSON.stringify({ error: 'Invalid pair secret' }) }
       }
+    } else if (userId !== 'user0') {
+      // Pair must be initialized by creator first to prevent accidental wrong-secret pair creation.
+      return { statusCode: 409, headers: CORS, body: JSON.stringify({ error: 'Pair not initialized' }) }
     }
 
     await client.send(new PutItemCommand({

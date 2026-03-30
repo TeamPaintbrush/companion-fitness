@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
-import { useStore, EMOJIS, WORKOUT_COLORS, COLOR_VALUES } from '../store.jsx'
+import { useStore, EMOJIS, WORKOUT_COLORS, COLOR_VALUES, todayStr } from '../store.jsx'
+import { getPair } from '../services/api.js'
 import { FitnessIcon } from './FitnessIcon.jsx'
 
 // Readable characters only — no 0/O, 1/I/L confusion
@@ -13,7 +14,10 @@ function newSecret() {
 function addDays(dateStr, days) {
   const d = new Date(dateStr + 'T12:00:00')
   d.setDate(d.getDate() + days)
-  return d.toISOString().split('T')[0]
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 function getDurationDays(startDate, endDate) {
   const start = new Date(startDate + 'T12:00:00')
@@ -102,8 +106,8 @@ export default function UserSetup() {
     { name: '', emoji: 'dumbbell', color: 'white' },
     { name: '', emoji: 'heart', color: 'tan' }
   ])
-  const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0])
-  const [endDate, setEndDate] = useState(addDays(new Date().toISOString().split('T')[0], 99))
+  const [startDate, setStartDate] = useState(todayStr())
+  const [endDate, setEndDate] = useState(addDays(todayStr(), 99))
   const [genCode, setGenCode] = useState(newCode)
   const [inviteSecret, setInviteSecret] = useState(newSecret)
   const [shareStatus, setShareStatus] = useState(null) // null | 'shared' | 'copied' | 'cancelled'
@@ -111,6 +115,8 @@ export default function UserSetup() {
   // Joiner state
   const [joinCode, setJoinCode] = useState('')
   const [joinSecret, setJoinSecret] = useState('')
+  const [joining, setJoining] = useState(false)
+  const [joinError, setJoinError] = useState('')
 
   const [showResetToast, setShowResetToast] = useState(false)
 
@@ -152,21 +158,57 @@ export default function UserSetup() {
     })
   }
 
-  function handleStartJoin() {
-    if (!joinReady) return
+  async function handleStartJoin() {
+    if (!joinReady || joining) return
+    const code = joinCode.toUpperCase().trim()
+    const secret = joinSecret.toUpperCase().trim()
+
+    setJoining(true)
+    setJoinError('')
+
+    // Fetch existing pair data so we can show real names immediately
+    let creatorProfile = { name: 'Partner', emoji: 'dumbbell', color: 'white' }
+    let mySeededProfile = null
+    let challengeData = null
+
+    try {
+      const records = await getPair(code, { pairSecret: secret })
+      const creatorRecord = records.find(r => r.userId === 'user0')
+      if (!creatorRecord) {
+        setJoining(false)
+        setJoinError('This pair is not active yet. Ask your partner to start the challenge first, then try again.')
+        return
+      }
+      if (creatorRecord) {
+        const raw = creatorRecord.userProfile || {}
+        mySeededProfile = raw.partnerProfileSeed || null
+        const { partnerProfileSeed: _seed, ...profile } = raw
+        if (profile.name) creatorProfile = profile
+        if (creatorRecord.challenge) challengeData = creatorRecord.challenge
+      }
+    } catch (err) {
+      // Wrong code or network error
+      const msg = err.message || ''
+      if (msg.includes('403') || msg.includes('401')) {
+        setJoining(false)
+        setJoinError('Invalid pair code or invite secret. Double-check with your partner.')
+        return
+      }
+      // Other errors (network down etc.) — proceed with placeholders
+    }
+
+    const myProfile = mySeededProfile && mySeededProfile.name
+      ? mySeededProfile
+      : { name: 'You', emoji: 'heart', color: 'tan' }
+
     dispatch({
       type: 'COMPLETE_SETUP',
-      // User 0 is a placeholder — real profile + challenge dates sync from AWS immediately after.
-      // User 1 can be customized in Profile after joining.
-      users: [
-        { name: 'Partner', emoji: 'dumbbell', color: 'white' },
-        { name: 'You', emoji: 'heart', color: 'tan' }
-      ],
-      startDate: new Date().toISOString().split('T')[0],
-      endDate: addDays(new Date().toISOString().split('T')[0], 99),
-      days: 100,
-      pairId: joinCode.toUpperCase().trim(),
-      pairSecret: joinSecret.toUpperCase().trim(),
+      users: [creatorProfile, myProfile],
+      startDate: challengeData?.startDate || todayStr(),
+      endDate: challengeData?.endDate || addDays(todayStr(), 99),
+      days: challengeData?.days || 100,
+      pairId: code,
+      pairSecret: secret,
       myUserId: 1
     })
   }
@@ -248,24 +290,28 @@ export default function UserSetup() {
               autoComplete="off"
             />
             <p style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 8, lineHeight: 1.5 }}>
-              Ask your partner for both their 6-character pair code and invite secret. Your challenge dates and partner info will sync automatically from AWS once you join.
+              Ask your partner for both their 6-character pair code and invite secret.
             </p>
+            {joinError && (
+              <p style={{ fontSize: 13, color: '#f87171', marginTop: 8, fontWeight: 600 }}>{joinError}</p>
+            )}
           </div>
 
           <div style={{ display: 'flex', gap: 10 }}>
             <button
               onClick={() => setStep('welcome')}
-              style={{ flex: 0, padding: '16px 20px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 14, fontSize: 15, fontWeight: 600, color: 'var(--text-secondary)', cursor: 'pointer', fontFamily: 'inherit' }}
+              disabled={joining}
+              style={{ flex: 0, padding: '16px 20px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 14, fontSize: 15, fontWeight: 600, color: 'var(--text-secondary)', cursor: joining ? 'not-allowed' : 'pointer', fontFamily: 'inherit', opacity: joining ? 0.45 : 1 }}
             >
               ← Back
             </button>
             <button
               className="setup-start-btn"
-              style={{ flex: 1, margin: 0, opacity: joinReady ? 1 : 0.45 }}
+              style={{ flex: 1, margin: 0, opacity: (joinReady && !joining) ? 1 : 0.45 }}
               onClick={handleStartJoin}
-              disabled={!joinReady}
+              disabled={!joinReady || joining}
             >
-              🔗 Join Challenge!
+              {joining ? '⏳ Connecting…' : '🔗 Join Challenge!'}
             </button>
           </div>
         </div>
