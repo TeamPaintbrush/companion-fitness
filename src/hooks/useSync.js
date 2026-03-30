@@ -52,7 +52,8 @@ export function useSync(state, dispatch) {
           type:        'SYNC_PARTNER',
           partnerId:   partnerUserId,
           workouts:    partnerRecord.workouts    || {},
-          userProfile: partnerRecord.userProfile || null
+          userProfile: partnerRecord.userProfile || null,
+          challenge:   partnerRecord.challenge   || null
         })
       }
       setStatus('live')

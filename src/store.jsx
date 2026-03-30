@@ -259,13 +259,18 @@ function reducer(state, action) {
     // Merge incoming partner data without touching own data
     case 'SYNC_PARTNER': {
       const key = `user${action.partnerId}`
-      return {
+      const newState = {
         ...state,
         workouts: { ...state.workouts, [key]: action.workouts },
         users: state.users.map((u, i) =>
           i === action.partnerId && action.userProfile ? { ...u, ...action.userProfile } : u
         )
       }
+      // Joiner device (myUserId=1) trusts the creator's (user0) challenge dates
+      if (action.partnerId === 0 && state.myUserId === 1 && action.challenge) {
+        newState.challenge = normalizeChallenge(action.challenge)
+      }
+      return newState
     }
 
     case 'SET_ACTIVE_USER':

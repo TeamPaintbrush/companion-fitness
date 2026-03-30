@@ -7,41 +7,112 @@ const CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 function newCode() {
   return Array.from({ length: 6 }, () => CHARS[Math.floor(Math.random() * CHARS.length)]).join('')
 }
-
 function newSecret() {
   return Array.from({ length: 10 }, () => CHARS[Math.floor(Math.random() * CHARS.length)]).join('')
 }
-
 function addDays(dateStr, days) {
   const d = new Date(dateStr + 'T12:00:00')
   d.setDate(d.getDate() + days)
   return d.toISOString().split('T')[0]
 }
-
 function getDurationDays(startDate, endDate) {
   const start = new Date(startDate + 'T12:00:00')
   const end = new Date(endDate + 'T12:00:00')
   return Math.max(1, Math.floor((end - start) / (1000 * 60 * 60 * 24)) + 1)
 }
 
+// Share pair code + secret via native share sheet (SMS etc.) or clipboard fallback
+async function sharePairCode(pairCode, secret) {
+  const text = [
+    `Hey! Join my Companion Fitness challenge 💪`,
+    ``,
+    `Pair code:     ${pairCode}`,
+    `Invite secret: ${secret}`,
+    ``,
+    `Open the app: https://teampaintbrush.github.io/companion-fitness`
+  ].join('\n')
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: 'Companion Fitness — Join my challenge!', text })
+      return 'shared'
+    } catch (e) {
+      if (e.name === 'AbortError') return 'cancelled'
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(text)
+    return 'copied'
+  } catch {
+    return 'error'
+  }
+}
+
+// Reusable user profile card
+function UserProfileCard({ label, user, onChange }) {
+  return (
+    <div className="setup-user-card">
+      <div className="setup-user-num">{label}</div>
+      <input
+        className="form-input"
+        type="text"
+        placeholder="Your name…"
+        value={user.name}
+        onChange={e => onChange('name', e.target.value)}
+        style={{ marginBottom: 14 }}
+      />
+      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: 8 }}>
+        Choose Icon
+      </div>
+      <div className="setup-emoji-row">
+        {EMOJIS.map(em => (
+          <button key={em} className={`setup-emoji-btn ${user.emoji === em ? 'selected' : ''}`} onClick={() => onChange('emoji', em)}>
+            <FitnessIcon name={em} size={20} />
+          </button>
+        ))}
+      </div>
+      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: 8, marginTop: 4 }}>
+        Color Theme
+      </div>
+      <div className="setup-color-row">
+        {WORKOUT_COLORS.map(c => (
+          <div key={c} className={`setup-color-btn ${user.color === c ? 'selected' : ''}`} style={{ background: COLOR_VALUES[c] }} onClick={() => onChange('color', c)} />
+        ))}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 16, padding: '10px 14px', background: 'var(--bg-input)', borderRadius: 12, border: '1px solid var(--border)' }}>
+        <div style={{ width: 38, height: 38, borderRadius: '50%', background: `${COLOR_VALUES[user.color]}22`, border: `2px solid ${COLOR_VALUES[user.color]}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <FitnessIcon name={user.emoji} size={20} />
+        </div>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{user.name || 'Your name'}</div>
+          <div style={{ fontSize: 11, color: COLOR_VALUES[user.color] }}>{user.color} theme</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function UserSetup() {
   const { dispatch } = useStore()
 
-  const [step, setStep] = useState('profiles') // 'profiles' | 'pair'
+  // step: 'welcome' | 'profiles' | 'create-code' | 'join'
+  const [step, setStep] = useState('welcome')
 
+  // Creator state
   const [users, setUsers] = useState([
     { name: '', emoji: 'dumbbell', color: 'white' },
     { name: '', emoji: 'heart', color: 'tan' }
   ])
   const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0])
   const [endDate, setEndDate] = useState(addDays(new Date().toISOString().split('T')[0], 99))
-
-  // Pair code state
-  const [mode, setMode]       = useState('create')  // 'create' | 'join'
-  const [genCode, setGenCode] = useState(newCode)   // generated code for creator
+  const [genCode, setGenCode] = useState(newCode)
   const [inviteSecret, setInviteSecret] = useState(newSecret)
-  const [joinCode, setJoinCode] = useState('')       // code typed by joiner
+  const [shareStatus, setShareStatus] = useState(null) // null | 'shared' | 'copied' | 'cancelled'
+
+  // Joiner state
+  const [joinUser, setJoinUser] = useState({ name: '', emoji: 'heart', color: 'tan' })
+  const [joinCode, setJoinCode] = useState('')
   const [joinSecret, setJoinSecret] = useState('')
+
   const [showResetToast, setShowResetToast] = useState(false)
 
   useEffect(() => {
@@ -55,110 +126,177 @@ export default function UserSetup() {
     } catch {}
   }, [])
 
+  const canContinueProfiles = users[0].name.trim() && users[1].name.trim()
+  const joinReady = joinCode.trim().length === 6 && joinSecret.trim().length >= 8 && joinUser.name.trim()
+
   function updateUser(idx, field, value) {
     setUsers(prev => prev.map((u, i) => i === idx ? { ...u, [field]: value } : u))
   }
 
-  const canContinue = users[0].name.trim() && users[1].name.trim()
+  function handleShareCode() {
+    sharePairCode(genCode, inviteSecret).then(result => {
+      setShareStatus(result)
+      if (result !== 'cancelled') setTimeout(() => setShareStatus(null), 2800)
+    })
+  }
 
-  function handleStart() {
-    const pairId   = mode === 'create' ? genCode : joinCode.toUpperCase().trim()
-    const pairSecret = mode === 'create' ? inviteSecret : joinSecret.toUpperCase().trim()
-    const myUserId = mode === 'create' ? 0 : 1
-    if (!pairId || pairId.length !== 6) return
-    if (!pairSecret || pairSecret.length < 8) return
-
+  function handleStartCreate() {
     dispatch({
       type: 'COMPLETE_SETUP',
       users: users.map(u => ({ name: u.name.trim() || 'User', emoji: u.emoji, color: u.color })),
       startDate,
       endDate,
       days: getDurationDays(startDate, endDate),
-      pairId,
-      pairSecret,
-      myUserId
+      pairId: genCode,
+      pairSecret: inviteSecret,
+      myUserId: 0
     })
   }
 
-  // ─── Step 1: profiles ──────────────────────────────────────────────────────
-  if (step === 'profiles') {
+  function handleStartJoin() {
+    if (!joinReady) return
+    dispatch({
+      type: 'COMPLETE_SETUP',
+      // User 0 is a placeholder — real profile + challenge dates sync from AWS immediately after
+      users: [
+        { name: 'Partner', emoji: 'dumbbell', color: 'white' },
+        { name: joinUser.name.trim(), emoji: joinUser.emoji, color: joinUser.color }
+      ],
+      startDate: new Date().toISOString().split('T')[0],
+      endDate: addDays(new Date().toISOString().split('T')[0], 99),
+      days: 100,
+      pairId: joinCode.toUpperCase().trim(),
+      pairSecret: joinSecret.toUpperCase().trim(),
+      myUserId: 1
+    })
+  }
+
+  const ResetToast = showResetToast ? (
+    <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 12, border: '1px solid rgba(96,165,250,0.45)', background: 'rgba(96,165,250,0.15)', color: '#dbeafe', fontSize: 13, fontWeight: 700, textAlign: 'center' }}>
+      Reset complete. You are back to a fresh app state.
+    </div>
+  ) : null
+
+  // ─── Welcome ──────────────────────────────────────────────────────────────
+  if (step === 'welcome') {
     return (
       <div className="setup-screen">
-        {showResetToast && (
-          <div
-            style={{
-              marginBottom: 14,
-              padding: '10px 12px',
-              borderRadius: 12,
-              border: '1px solid rgba(96, 165, 250, 0.45)',
-              background: 'rgba(96, 165, 250, 0.15)',
-              color: '#dbeafe',
-              fontSize: 13,
-              fontWeight: 700,
-              textAlign: 'center'
-            }}
-          >
-            Reset complete. You are back to a fresh app state.
-          </div>
-        )}
+        {ResetToast}
         <div className="setup-logo"><FitnessIcon name="activity" size={56} /></div>
         <h1 className="setup-title"><span>Companion</span> Fitness</h1>
         <p className="setup-subtitle">
           A flexible fitness challenge tracker<br />for you and your companion
         </p>
-
         <div className="setup-step">
-          {[0, 1].map(idx => {
-            const user = users[idx]
-            return (
-              <div className="setup-user-card" key={idx}>
-                <div className="setup-user-num">
-                  {idx === 0 ? 'User 1 - That\'s you!' : 'User 2 - Your Companion'}
-                </div>
+          {/* Join first — companions land here and go straight in */}
+          <div className="setup-user-card" style={{ border: '2px solid var(--accent-lime)', background: 'rgba(198,241,53,0.05)' }}>
+            <div className="setup-user-num" style={{ color: 'var(--accent-lime)' }}>🔗 Got a pair code?</div>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, margin: '6px 0 14px' }}>
+              Your partner already set up the challenge and shared a code with you. Jump straight in.
+            </p>
+            <button
+              onClick={() => setStep('join')}
+              style={{ width: '100%', padding: '14px', background: 'var(--accent-lime)', border: 'none', borderRadius: 12, fontSize: 16, fontWeight: 800, color: '#000', cursor: 'pointer', fontFamily: 'inherit' }}
+            >
+              Join Partner's Challenge →
+            </button>
+          </div>
 
-                <input
-                  className="form-input"
-                  type="text"
-                  placeholder={idx === 0 ? 'Your name…' : "Companion's name…"}
-                  value={user.name}
-                  onChange={e => updateUser(idx, 'name', e.target.value)}
-                  style={{ marginBottom: 14 }}
-                />
+          <div style={{ margin: '4px 0', textAlign: 'center', fontSize: 13, color: 'var(--text-tertiary)', fontWeight: 600 }}>— or —</div>
 
-                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: 8 }}>
-                  Choose Icon
-                </div>
-                <div className="setup-emoji-row">
-                  {EMOJIS.map(em => (
-                    <button key={em} className={`setup-emoji-btn ${user.emoji === em ? 'selected' : ''}`} onClick={() => updateUser(idx, 'emoji', em)}>
-                      <FitnessIcon name={em} size={20} />
-                    </button>
-                  ))}
-                </div>
+          <button
+            className="setup-start-btn"
+            onClick={() => setStep('profiles')}
+            style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
+          >
+            🚀 Start a New Pair Challenge
+          </button>
+        </div>
+      </div>
+    )
+  }
 
-                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: 8, marginTop: 4 }}>
-                  Color Theme
-                </div>
-                <div className="setup-color-row">
-                  {WORKOUT_COLORS.map(c => (
-                    <div key={c} className={`setup-color-btn ${user.color === c ? 'selected' : ''}`} style={{ background: COLOR_VALUES[c] }} onClick={() => updateUser(idx, 'color', c)} />
-                  ))}
-                </div>
+  // ─── Join (companion / user #2) ───────────────────────────────────────────
+  if (step === 'join') {
+    return (
+      <div className="setup-screen">
+        <div className="setup-logo"><FitnessIcon name="link" size={56} /></div>
+        <h1 className="setup-title">Join a <span>Challenge</span></h1>
+        <p className="setup-subtitle">
+          Set up your profile and enter<br />the code your partner shared
+        </p>
+        <div className="setup-step">
+          <UserProfileCard
+            label="Your profile (User 2)"
+            user={joinUser}
+            onChange={(field, val) => setJoinUser(p => ({ ...p, [field]: val }))}
+          />
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 16, padding: '10px 14px', background: 'var(--bg-input)', borderRadius: 12, border: '1px solid var(--border)' }}>
-                  <div style={{ width: 38, height: 38, borderRadius: '50%', background: `${COLOR_VALUES[user.color]}22`, border: `2px solid ${COLOR_VALUES[user.color]}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
-                    <FitnessIcon name={user.emoji} size={20} />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
-                      {user.name || (idx === 0 ? 'Your name' : "Companion's name")}
-                    </div>
-                    <div style={{ fontSize: 11, color: COLOR_VALUES[user.color] }}>{user.color} theme</div>
-                  </div>
-                </div>
-              </div>
-            )
-          })}
+          <div className="setup-user-card">
+            <div className="setup-user-num">Partner's pair code</div>
+            <input
+              className="form-input"
+              type="text"
+              placeholder="e.g. ABC123"
+              maxLength={6}
+              value={joinCode}
+              onChange={e => setJoinCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+              style={{ fontSize: 28, fontWeight: 800, letterSpacing: 8, textAlign: 'center', marginTop: 10 }}
+              autoComplete="off"
+            />
+            <input
+              className="form-input"
+              type="text"
+              placeholder="Invite secret"
+              value={joinSecret}
+              onChange={e => setJoinSecret(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+              style={{ marginTop: 10, fontSize: 18, fontWeight: 700, letterSpacing: 2, textAlign: 'center' }}
+              autoComplete="off"
+            />
+            <p style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 8, lineHeight: 1.5 }}>
+              Ask your partner for both their 6-character pair code and invite secret. Your challenge dates and partner info will sync automatically from AWS once you join.
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button
+              onClick={() => setStep('welcome')}
+              style={{ flex: 0, padding: '16px 20px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 14, fontSize: 15, fontWeight: 600, color: 'var(--text-secondary)', cursor: 'pointer', fontFamily: 'inherit' }}
+            >
+              ← Back
+            </button>
+            <button
+              className="setup-start-btn"
+              style={{ flex: 1, margin: 0, opacity: joinReady ? 1 : 0.45 }}
+              onClick={handleStartJoin}
+              disabled={!joinReady}
+            >
+              🔗 Join Challenge!
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ─── Profiles (creator — User 1) ──────────────────────────────────────────
+  if (step === 'profiles') {
+    return (
+      <div className="setup-screen">
+        <div className="setup-logo"><FitnessIcon name="activity" size={56} /></div>
+        <h1 className="setup-title"><span>Companion</span> Fitness</h1>
+        <p className="setup-subtitle">
+          A flexible fitness challenge tracker<br />for you and your companion
+        </p>
+        <div className="setup-step">
+          {[0, 1].map(idx => (
+            <UserProfileCard
+              key={idx}
+              label={idx === 0 ? "User 1 — That's you!" : "User 2 — Your Companion"}
+              user={users[idx]}
+              onChange={(field, val) => updateUser(idx, field, val)}
+            />
+          ))}
 
           <div className="setup-user-card">
             <div className="setup-user-num">📅 Challenge Date Range</div>
@@ -194,113 +332,78 @@ export default function UserSetup() {
             </p>
           </div>
 
-          <button
-            className="setup-start-btn"
-            onClick={() => setStep('pair')}
-            disabled={!canContinue}
-          >
-            {canContinue ? 'Next — Connect Devices →' : 'Enter both names to continue'}
-          </button>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button
+              onClick={() => setStep('welcome')}
+              style={{ flex: 0, padding: '16px 20px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 14, fontSize: 15, fontWeight: 600, color: 'var(--text-secondary)', cursor: 'pointer', fontFamily: 'inherit' }}
+            >
+              ← Back
+            </button>
+            <button
+              className="setup-start-btn"
+              style={{ flex: 1, margin: 0, opacity: canContinueProfiles ? 1 : 0.45 }}
+              onClick={() => setStep('create-code')}
+              disabled={!canContinueProfiles}
+            >
+              {canContinueProfiles ? 'Next — Get Pair Code →' : 'Enter both names to continue'}
+            </button>
+          </div>
         </div>
       </div>
     )
   }
 
-  // ─── Step 2: pair code ─────────────────────────────────────────────────────
-  const joinReady = joinCode.trim().length === 6
-
+  // ─── Create code (creator gets their code + share button) ─────────────────
   return (
     <div className="setup-screen">
       <div className="setup-logo"><FitnessIcon name="link" size={56} /></div>
       <h1 className="setup-title">Connect <span>Devices</span></h1>
       <p className="setup-subtitle">
-        Both devices need the same pair code<br />so your workouts stay in sync
+        Share this code with your companion<br />so your workouts stay in sync
       </p>
-
       <div className="setup-step">
-        {/* Mode toggle */}
-        <div style={{ display: 'flex', background: 'var(--bg-card)', borderRadius: 12, padding: 4, gap: 4, marginBottom: 4 }}>
-          {[['create', 'New pair'], ['join', 'Join pair']].map(([m, label]) => (
-            <button
-              key={m}
-              onClick={() => setMode(m)}
-              style={{
-                flex: 1, padding: '10px 0', borderRadius: 9,
-                background: mode === m ? '#fff' : 'transparent',
-                border: 'none', cursor: 'pointer', fontFamily: 'inherit',
-                fontSize: 14, fontWeight: 700,
-                color: mode === m ? '#000' : 'var(--text-secondary)',
-                transition: 'all 0.15s ease'
-              }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <div className="setup-user-card">
+          <div className="setup-user-num">Your pair code</div>
+          <div style={{ fontSize: 42, fontWeight: 900, letterSpacing: 10, color: '#fff', textAlign: 'center', padding: '20px 0 4px', fontVariantNumeric: 'tabular-nums' }}>
+            {genCode}
+          </div>
+          <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 10, marginBottom: 14, background: 'var(--bg-input)' }}>
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4 }}>
+              Invite Secret
+            </div>
+            <div style={{ fontSize: 19, fontWeight: 800, letterSpacing: 2, color: '#fff', textAlign: 'center' }}>{inviteSecret}</div>
+          </div>
 
-        {mode === 'create' ? (
-          <div className="setup-user-card">
-            <div className="setup-user-num">Your pair code</div>
-            <div style={{
-              fontSize: 42, fontWeight: 900, letterSpacing: 10,
-              color: '#fff', textAlign: 'center', padding: '20px 0 10px',
-              fontVariantNumeric: 'tabular-nums'
-            }}>
-              {genCode}
-            </div>
-            <p style={{ fontSize: 13, color: 'var(--text-secondary)', textAlign: 'center', lineHeight: 1.6, marginBottom: 12 }}>
-              Share this code with your companion.<br />
-              They enter it on their device to link up.
-            </p>
-            <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 10, marginBottom: 10, background: 'var(--bg-input)' }}>
-              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4 }}>
-                Invite Secret
-              </div>
-              <div style={{ fontSize: 19, fontWeight: 800, letterSpacing: 2, color: '#fff', textAlign: 'center' }}>{inviteSecret}</div>
-            </div>
-            <button
-              onClick={() => setGenCode(newCode())}
-              style={{ width: '100%', padding: '10px', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
-            >
-              Generate new code
-            </button>
-            <button
-              onClick={() => setInviteSecret(newSecret())}
-              style={{ width: '100%', padding: '10px', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', marginTop: 8 }}
-            >
-              Regenerate invite secret
-            </button>
-          </div>
-        ) : (
-          <div className="setup-user-card">
-            <div className="setup-user-num">Enter your companion's code</div>
-            <input
-              className="form-input"
-              type="text"
-              placeholder="e.g. ABC123"
-              maxLength={6}
-              value={joinCode}
-              onChange={e => setJoinCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
-              style={{ fontSize: 28, fontWeight: 800, letterSpacing: 8, textAlign: 'center', marginTop: 10 }}
-              autoFocus
-            />
-            <p style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 8, lineHeight: 1.5 }}>
-              Ask the other person for their 6-character pair code.
-            </p>
-            <input
-              className="form-input"
-              type="text"
-              placeholder="Invite secret"
-              minLength={8}
-              value={joinSecret}
-              onChange={e => setJoinSecret(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
-              style={{ marginTop: 10, fontSize: 18, fontWeight: 700, letterSpacing: 2, textAlign: 'center' }}
-            />
-            <p style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 8, lineHeight: 1.5 }}>
-              You need both the pair code and invite secret to join.
-            </p>
-          </div>
-        )}
+          {/* Share button — uses native phone share sheet → SMS etc. */}
+          <button
+            onClick={handleShareCode}
+            style={{
+              width: '100%', padding: '15px', background: shareStatus ? 'rgba(198,241,53,0.2)' : 'var(--accent-lime)',
+              border: shareStatus ? '2px solid var(--accent-lime)' : 'none',
+              borderRadius: 12, fontSize: 16, fontWeight: 800,
+              color: shareStatus ? 'var(--accent-lime)' : '#000',
+              cursor: 'pointer', fontFamily: 'inherit', marginBottom: 10,
+              transition: 'all 0.2s ease'
+            }}
+          >
+            {shareStatus === 'copied'
+              ? '✓ Copied to clipboard!'
+              : shareStatus === 'shared'
+              ? '✓ Sent!'
+              : '📤 Share Code with Partner'}
+          </button>
+
+          <p style={{ fontSize: 12, color: 'var(--text-tertiary)', textAlign: 'center', lineHeight: 1.6, marginBottom: 10 }}>
+            Tap to send via Messages, WhatsApp, email — whatever works. Your companion enters both the code and secret to join.
+          </p>
+
+          <button
+            onClick={() => { setGenCode(newCode()); setInviteSecret(newSecret()) }}
+            style={{ width: '100%', padding: '10px', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+          >
+            Generate new code
+          </button>
+        </div>
 
         <div style={{ display: 'flex', gap: 10 }}>
           <button
@@ -312,8 +415,7 @@ export default function UserSetup() {
           <button
             className="setup-start-btn"
             style={{ flex: 1, margin: 0 }}
-            onClick={handleStart}
-            disabled={mode === 'join' && (!joinReady || joinSecret.trim().length < 8)}
+            onClick={handleStartCreate}
           >
             🚀 Start Challenge!
           </button>
