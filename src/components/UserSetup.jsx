@@ -109,7 +109,6 @@ export default function UserSetup() {
   const [shareStatus, setShareStatus] = useState(null) // null | 'shared' | 'copied' | 'cancelled'
 
   // Joiner state
-  const [joinUser, setJoinUser] = useState({ name: '', emoji: 'heart', color: 'tan' })
   const [joinCode, setJoinCode] = useState('')
   const [joinSecret, setJoinSecret] = useState('')
 
@@ -127,7 +126,7 @@ export default function UserSetup() {
   }, [])
 
   const canContinueProfiles = users[0].name.trim() && users[1].name.trim()
-  const joinReady = joinCode.trim().length === 6 && joinSecret.trim().length >= 8 && joinUser.name.trim()
+  const joinReady = joinCode.trim().length === 6 && joinSecret.trim().length >= 8
 
   function updateUser(idx, field, value) {
     setUsers(prev => prev.map((u, i) => i === idx ? { ...u, [field]: value } : u))
@@ -157,10 +156,11 @@ export default function UserSetup() {
     if (!joinReady) return
     dispatch({
       type: 'COMPLETE_SETUP',
-      // User 0 is a placeholder — real profile + challenge dates sync from AWS immediately after
+      // User 0 is a placeholder — real profile + challenge dates sync from AWS immediately after.
+      // User 1 can be customized in Profile after joining.
       users: [
         { name: 'Partner', emoji: 'dumbbell', color: 'white' },
-        { name: joinUser.name.trim(), emoji: joinUser.emoji, color: joinUser.color }
+        { name: 'You', emoji: 'heart', color: 'tan' }
       ],
       startDate: new Date().toISOString().split('T')[0],
       endDate: addDays(new Date().toISOString().split('T')[0], 99),
@@ -223,15 +223,9 @@ export default function UserSetup() {
         <div className="setup-logo"><FitnessIcon name="link" size={56} /></div>
         <h1 className="setup-title">Join a <span>Challenge</span></h1>
         <p className="setup-subtitle">
-          Set up your profile and enter<br />the code your partner shared
+          Enter the code your partner shared<br />and you are in
         </p>
         <div className="setup-step">
-          <UserProfileCard
-            label="Your profile (User 2)"
-            user={joinUser}
-            onChange={(field, val) => setJoinUser(p => ({ ...p, [field]: val }))}
-          />
-
           <div className="setup-user-card">
             <div className="setup-user-num">Partner's pair code</div>
             <input
