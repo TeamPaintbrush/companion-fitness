@@ -22,9 +22,13 @@ export function useSync(state, dispatch) {
   // ── Save own data ──────────────────────────────────────────────────────────
   const saveOwn = useCallback(async () => {
     if (!active) return
+    const ownProfile = users[myUserId] || {}
+    const payloadUserProfile = myUserId === 0
+      ? { ...ownProfile, partnerProfileSeed: users[1] || null }
+      : ownProfile
     const payload = {
       workouts:    workouts[myUserKey] || {},
-      userProfile: users[myUserId]     || {},
+      userProfile: payloadUserProfile,
       challenge
     }
     const fingerprint = JSON.stringify(payload)
@@ -48,12 +52,18 @@ export function useSync(state, dispatch) {
       const records      = await getPair(pairId, { pairSecret })
       const partnerRecord = records.find(r => r.userId === partnerKey)
       if (partnerRecord) {
+        const rawPartnerProfile = partnerRecord.userProfile || null
+        const seededJoinProfile = rawPartnerProfile?.partnerProfileSeed || null
+        const partnerProfile = rawPartnerProfile && typeof rawPartnerProfile === 'object'
+          ? Object.fromEntries(Object.entries(rawPartnerProfile).filter(([k]) => k !== 'partnerProfileSeed'))
+          : rawPartnerProfile
         dispatch({
           type:        'SYNC_PARTNER',
           partnerId:   partnerUserId,
           workouts:    partnerRecord.workouts    || {},
-          userProfile: partnerRecord.userProfile || null,
-          challenge:   partnerRecord.challenge   || null
+          userProfile: partnerProfile,
+          challenge:   partnerRecord.challenge   || null,
+          seededJoinProfile
         })
       }
       setStatus('live')

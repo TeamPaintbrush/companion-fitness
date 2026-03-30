@@ -270,6 +270,16 @@ function reducer(state, action) {
       if (action.partnerId === 0 && state.myUserId === 1 && action.challenge) {
         newState.challenge = normalizeChallenge(action.challenge)
       }
+      // First-time joiner hydration: creator can seed User 2 profile to avoid re-entry.
+      if (action.partnerId === 0 && state.myUserId === 1 && action.seededJoinProfile) {
+        const myCurrent = state.users[1] || {}
+        const isDefaultJoiner = !myCurrent.name || myCurrent.name === 'You'
+        if (isDefaultJoiner) {
+          newState.users = newState.users.map((u, i) =>
+            i === 1 ? { ...u, ...action.seededJoinProfile } : u
+          )
+        }
+      }
       return newState
     }
 
