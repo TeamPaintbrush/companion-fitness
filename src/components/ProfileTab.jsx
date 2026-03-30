@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useStore, EMOJIS, WORKOUT_COLORS, COLOR_VALUES, getChallengeLabel } from '../store.jsx'
 import { FitnessIcon } from './FitnessIcon.jsx'
 
@@ -12,6 +12,10 @@ export default function ProfileTab() {
   const [confirmReset, setConfirmReset] = useState(false)
   const [confirmFullReset, setConfirmFullReset] = useState(false)
   const [showPairSecret, setShowPairSecret] = useState(false)
+  const [versionTapCount, setVersionTapCount] = useState(0)
+  const [showDiagnostics, setShowDiagnostics] = useState(false)
+  const [diagnostics, setDiagnostics] = useState([])
+  const [diagCopyMsg, setDiagCopyMsg] = useState('')
   const [authToken, setAuthToken] = useState(() => {
     try {
       return localStorage.getItem('companion-fitness-id-token') || ''
@@ -77,6 +81,40 @@ export default function ProfileTab() {
     } catch {
       setAuthSavedMsg('Unable to save token on this device.')
       setTimeout(() => setAuthSavedMsg(''), 2200)
+    }
+  }
+
+  useEffect(() => {
+    if (!showDiagnostics) return
+    try {
+      const apiErrors = JSON.parse(localStorage.getItem('companion-fitness-api-errors') || '[]')
+      const onboarding = JSON.parse(localStorage.getItem('companion-fitness-onboarding-events') || '[]')
+      const merged = [...(Array.isArray(apiErrors) ? apiErrors : []), ...(Array.isArray(onboarding) ? onboarding : [])]
+      merged.sort((a, b) => String(b.ts || '').localeCompare(String(a.ts || '')))
+      setDiagnostics(merged.slice(0, 3))
+    } catch {
+      setDiagnostics([])
+    }
+  }, [showDiagnostics])
+
+  function handleVersionTap() {
+    const next = versionTapCount + 1
+    if (next >= 5) {
+      setShowDiagnostics(v => !v)
+      setVersionTapCount(0)
+      return
+    }
+    setVersionTapCount(next)
+  }
+
+  async function copyDiagnostics() {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(diagnostics, null, 2))
+      setDiagCopyMsg('Diagnostics copied.')
+      setTimeout(() => setDiagCopyMsg(''), 1800)
+    } catch {
+      setDiagCopyMsg('Unable to copy diagnostics.')
+      setTimeout(() => setDiagCopyMsg(''), 1800)
     }
   }
 
@@ -326,7 +364,7 @@ export default function ProfileTab() {
             <span className="profile-row-label">App</span>
             <span className="profile-row-value">Companion Fitness</span>
           </div>
-          <div className="profile-row">
+          <div className="profile-row" onClick={handleVersionTap} style={{ cursor: 'pointer' }}>
             <span className="profile-row-label">Version</span>
             <span className="profile-row-value">1.0.0</span>
           </div>
@@ -342,6 +380,39 @@ export default function ProfileTab() {
             <span style={{ flex: 1, fontSize: 14 }}>✉️ Contact Us ({CONTACT_EMAIL})</span>
             <span style={{ fontSize: 14 }}>›</span>
           </a>
+          {showDiagnostics && (
+            <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed var(--border)' }}>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 700, marginBottom: 8 }}>
+                Diagnostics (latest 3)
+              </div>
+              {diagnostics.length === 0 && (
+                <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>No diagnostics captured yet.</div>
+              )}
+              {diagnostics.map((item, idx) => (
+                <div key={`${item.ts || 'no-ts'}-${idx}`} style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6, lineHeight: 1.4 }}>
+                  {item.ts || 'n/a'} · {item.type || item.method || 'event'} · {item.status || 'ok'}
+                </div>
+              ))}
+              <button
+                onClick={copyDiagnostics}
+                style={{
+                  marginTop: 6,
+                  background: 'var(--bg-input)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 8,
+                  padding: '8px 12px',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit'
+                }}
+              >
+                Copy Diagnostics
+              </button>
+              {diagCopyMsg && <div style={{ fontSize: 11, color: 'var(--accent-lime)', marginTop: 6 }}>{diagCopyMsg}</div>}
+            </div>
+          )}
         </div>
       </div>
     </div>
